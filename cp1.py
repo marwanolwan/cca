@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from binance.client import Client
-import talib
 import pandas_ta as ta
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
@@ -48,19 +47,11 @@ if not st.session_state["authenticated"]:
         if login(username, password):
             st.session_state["authenticated"] = True
             st.success("تم تسجيل الدخول بنجاح! يرجى الانتظار...")
-            # تأخير بسيط لمحاكاة إعادة التحميل
-            st.session_state["reload"] = True
 else:
-    # التحقق من إعادة التوجيه بعد تسجيل الدخول
-    if "reload" in st.session_state and st.session_state["reload"]:
-        del st.session_state["reload"]
-        st.query_params["authenticated"] = "true"
-
     # عرض التطبيق إذا كان المستخدم مصادقًا
     st.subheader("مرحبًا بك في واجهة تحليل العملات الرقمية")
     if st.button("تسجيل الخروج"):
         st.session_state["authenticated"] = False
-        st.query_params["authenticated"] = "false"
         st.warning("تم تسجيل الخروج بنجاح!")
 
     # جلب بيانات العملات من Binance
@@ -78,26 +69,36 @@ else:
     @st.cache_data
     def analyze_indicators(df):
         # إضافة مؤشر القوة النسبية (RSI)
-        df['RSI'] = talib.RSI(df['close'], timeperiod=14)
+        df['RSI'] = ta.rsi(df['close'], length=14)
 
         # إضافة مؤشر MACD
-        df['MACD'], df['MACD_signal'], df['MACD_hist'] = talib.MACD(df['close'], fastperiod=12, slowperiod=26, signalperiod=9)
+        macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
+        if not macd.empty:
+            df['MACD'] = macd['MACD_12_26_9']
+            df['MACD_signal'] = macd['MACDs_12_26_9']
+            df['MACD_hist'] = macd['MACDh_12_26_9']
 
         # حساب Stochastic RSI
         stoch_rsi = ta.stochrsi(df['close'], length=14)
-        if stoch_rsi is not None and not stoch_rsi.empty:
-            df['Stoch_RSI_K'] = stoch_rsi.iloc[:, 0]  # أول عمود عادةً يكون %K
-            df['Stoch_RSI_D'] = stoch_rsi.iloc[:, 1]  # ثاني عمود عادةً يكون %D
+        if not stoch_rsi.empty:
+            if 'STOCHRSIk_14' in stoch_rsi.columns:
+                df['Stoch_RSI_K'] = stoch_rsi['STOCHRSIk_14']
+            if 'STOCHRSId_14' in stoch_rsi.columns:
+                df['Stoch_RSI_D'] = stoch_rsi['STOCHRSId_14']
 
         # المتوسطات المتحركة
-        df['SMA_50'] = talib.SMA(df['close'], timeperiod=50)
-        df['SMA_200'] = talib.SMA(df['close'], timeperiod=200)
+        df['SMA_50'] = ta.sma(df['close'], length=50)
+        df['SMA_200'] = ta.sma(df['close'], length=200)
 
         # بولينجر باند
-        df['upper_band'], df['middle_band'], df['lower_band'] = talib.BBANDS(df['close'], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
+        bb = ta.bbands(df['close'], length=20, std=2)
+        if not bb.empty:
+            df['upper_band'] = bb['BBU_20_2.0']
+            df['middle_band'] = bb['BBM_20_2.0']
+            df['lower_band'] = bb['BBL_20_2.0']
 
         # ATR لحساب التقلبات
-        df['ATR'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=14)
+        df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
 
         # نسبة التغير والمعدلات الملساء
         df['pct_change'] = df['close'].pct_change()
