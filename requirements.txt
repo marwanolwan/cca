@@ -2,7 +2,6 @@ streamlit
 pandas
 numpy
 python-binance
-TA-Lib
 pandas-ta
 scikit-learn
 imbalanced-learn
