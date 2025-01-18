@@ -7,5 +7,4 @@ scikit-learn
 imbalanced-learn
 lightgbm
 plotly
-setuptools>=65.0.0
 importlib-metadata>=6.0.0
