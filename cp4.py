@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import ccxt
 import numpy as np
 import pandas_ta as ta
 import google.generativeai as genai
@@ -24,48 +23,43 @@ if not GOOGLE_API_KEY:
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel('gemini-pro')
 
-# وظيفة لجلب بيانات العملة من منصة Binance
+# وظيفة لجلب بيانات العملة من CoinGecko
 @st.cache_data(ttl=300)
-def fetch_binance_data(pair, timeframe, proxy=None):
+def fetch_coingecko_data(pair, timeframe):
     try:
-        exchange = ccxt.binance()
-        if proxy:
-            exchange.proxies = {'http': proxy, 'https': proxy}
-        ohlcv = exchange.fetch_ohlcv(pair, timeframe)
-        data = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        pair = pair.lower().replace("/", "-")
+        if timeframe == "1m":
+            timeframe = "1"
+        elif timeframe == "5m":
+           timeframe = "5"
+        elif timeframe == "15m":
+           timeframe = "15"
+        elif timeframe == "1h":
+           timeframe ="60"
+        elif timeframe =="4h":
+           timeframe = "240"
+        elif timeframe == "1d":
+            timeframe = "1440"
+        else:
+          timeframe = "1440"
+        url = f"https://api.coingecko.com/api/v3/coins/{pair}/ohlc?vs_currency=usd&days=1&interval={timeframe}"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        ohlcv = response.json()
+        if not ohlcv:
+            st.warning(f"لا توجد بيانات لزوج العملات {pair} في CoinGecko.")
+            return None
+        data = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close"])
         data["timestamp"] = pd.to_datetime(data["timestamp"], unit="ms")
         data.set_index("timestamp", inplace=True)
         return data
-    except Exception as e:
-        st.error(f"حدث خطأ أثناء جلب بيانات الأسعار: {e}")
+    except requests.exceptions.RequestException as e:
+        st.error(f"حدث خطأ في الاتصال بالإنترنت أثناء جلب بيانات الأسعار من CoinGecko: {e}")
         return None
+    except Exception as e:
+       st.error(f"حدث خطأ أثناء جلب بيانات الأسعار من CoinGecko: {e}")
+       return None
 
-# وظيفة لجلب بيانات معدل التمويل من منصة Binance
-@st.cache_data(ttl=300)
-def fetch_binance_funding_rate(pair, proxy=None):
-    try:
-        exchange = ccxt.binance()
-        if proxy:
-            exchange.proxies = {'http': proxy, 'https': proxy}
-        exchange.options['defaultType'] = 'future'  # تحديد نوع السوق للعقود الآجلة
-        future_pair = pair.replace("/", "") + ":PERP"  # تحويل زوج العملة إلى عقد آجل
-        # استخراج رمز العقد الآجل الصحيح
-        markets = exchange.fetch_markets()
-        valid_future_pair = next((market['symbol'] for market in markets if market['symbol'].replace("/", "") == future_pair), None)
-        if valid_future_pair:
-          funding_rates = exchange.fetch_funding_rates([valid_future_pair])
-          if funding_rates and len(funding_rates) > 0:
-            df = pd.DataFrame(funding_rates)
-            return df
-          else:
-            st.warning(f"لا توجد بيانات لمعدل التمويل لهذا العقد الآجل ({future_pair}).")
-            return None
-        else:
-          st.warning(f"لا يوجد عقد آجل دائم لزوج العملات {pair}.")
-          return None
-    except Exception as e:
-        st.error(f"حدث خطأ أثناء جلب بيانات معدل التمويل: {e}")
-        return None
 
 # تحليل البيانات باستخدام EMA
 def analyze_ema(data):
@@ -109,31 +103,10 @@ def analyze_price_action(data):
     except Exception as e:
         return f"خطأ أثناء تحليل حركة الأسعار: {e}"
 
-# تحليل معدل التمويل
+# تحليل معدل التمويل (تمثيلي)
 def analyze_funding_rate(pair):
-  try:
-    funding_data = fetch_binance_funding_rate(pair)
-    if funding_data is not None:
-      if not funding_data.empty:
-          st.subheader("بيانات معدل التمويل")
-          st.dataframe(funding_data[["symbol", "fundingRate", "time"]])
-          current_funding_rate = funding_data['fundingRate'][0]
-          st.write(f"معدل التمويل الحالي: {current_funding_rate}")
-          recommendation = ""
-          if current_funding_rate > 0:
-            recommendation = "معدل تمويل إيجابي: يشير إلى أن المضاربين على الشراء يدفعون للمضاربين على البيع."
-          elif current_funding_rate < 0:
-            recommendation = "معدل تمويل سلبي: يشير إلى أن المضاربين على البيع يدفعون للمضاربين على الشراء."
-          else:
-            recommendation = "معدل التمويل متعادل."
-          st.write(recommendation)
-      else:
-        st.write("لا توجد بيانات لمعدل التمويل.")
-    else:
-       st.write("لم يتم جلب بيانات معدل التمويل.")
-  except Exception as e:
-      st.write(f"خطأ أثناء تحليل معدل التمويل: {e}")
-
+    # ملاحظة: ليس لدى CoinGecko بيانات معدل التمويل، لذلك نعرض رسالة توضيحية
+    return "لا تتوفر بيانات معدل التمويل من CoinGecko."
 # وظيفة لحساب نقاط الارتكاز
 def calculate_pivot_points(data):
     try:
@@ -236,13 +209,13 @@ def main():
     # اختيار العملة
     st.sidebar.header("إعدادات البرنامج")
     crypto_pair = st.sidebar.text_input("اختر زوج العملات (مثل BTC/USDT):", "BTC/USDT")
-    proxy_address = st.sidebar.text_input("أدخل عنوان الخادم الوكيل (اختياري):")
+
     # اختيار الفترة الزمنية
     timeframe = st.sidebar.selectbox("اختر الإطار الزمني:", ["1m", "5m", "15m", "1h", "4h", "1d"], index=4)
 
     # تحميل البيانات
     st.write(f"جلب البيانات لـ {crypto_pair} ...")
-    data = fetch_binance_data(crypto_pair, timeframe, proxy=proxy_address)
+    data = fetch_coingecko_data(crypto_pair, timeframe)
 
     if data is not None:
         # تحليل البيانات باستخدام EMA
@@ -275,14 +248,14 @@ def main():
         breakout_analysis = analyze_breakout(data, pivot_point, resistance1, support1, resistance2, support2)
         st.write(breakout_analysis)
 
-         # رسم الرسوم البيانية
+        # رسم الرسوم البيانية
         plot_indicators(data, crypto_pair, pivot_point, resistance1, support1, resistance2, support2)
+
 
         # تحليل البيانات باستخدام Funding Rate
         st.subheader("نتائج التحليل باستخدام معدل التمويل (Funding Rate)")
         funding_rate_analysis = analyze_funding_rate(crypto_pair)
-        if funding_rate_analysis is None:
-           funding_rate_analysis ="لا توجد بيانات لمعدل التمويل لهذا الزوج."
+        st.write(funding_rate_analysis)
 
         # جلب بيانات الأخبار والمشاعر من الإنترنت
         st.subheader("تحليل الأخبار والمشاعر")
@@ -302,11 +275,11 @@ def main():
         else:
            ai_content +=" , News data not available"
         ai_response = send_to_ai(ai_content)
-        st.write(" تم إرسال النتائج بنجاح الرجاء الانتظار قليلا لظهور النتائج.")
+        st.write("تم إرسال النتائج بنجاح.")
         st.subheader("رد الذكاء الاصطناعي")
         st.write(ai_response)
     else:
         st.write("تعذر جلب البيانات. تحقق من زوج العملات أو الإعدادات.")
-        st.subheader("مروان علوان  ")
+
 if __name__ == "__main__":
     main()
