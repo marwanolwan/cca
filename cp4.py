@@ -26,9 +26,11 @@ model = genai.GenerativeModel('gemini-pro')
 
 # وظيفة لجلب بيانات العملة من منصة Binance
 @st.cache_data(ttl=300)
-def fetch_binance_data(pair, timeframe):
+def fetch_binance_data(pair, timeframe, proxy=None):
     try:
         exchange = ccxt.binance()
+        if proxy:
+            exchange.proxies = {'http': proxy, 'https': proxy}
         ohlcv = exchange.fetch_ohlcv(pair, timeframe)
         data = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
         data["timestamp"] = pd.to_datetime(data["timestamp"], unit="ms")
@@ -40,9 +42,11 @@ def fetch_binance_data(pair, timeframe):
 
 # وظيفة لجلب بيانات معدل التمويل من منصة Binance
 @st.cache_data(ttl=300)
-def fetch_binance_funding_rate(pair):
+def fetch_binance_funding_rate(pair, proxy=None):
     try:
         exchange = ccxt.binance()
+        if proxy:
+            exchange.proxies = {'http': proxy, 'https': proxy}
         exchange.options['defaultType'] = 'future'  # تحديد نوع السوق للعقود الآجلة
         future_pair = pair.replace("/", "") + ":PERP"  # تحويل زوج العملة إلى عقد آجل
         # استخراج رمز العقد الآجل الصحيح
@@ -232,13 +236,13 @@ def main():
     # اختيار العملة
     st.sidebar.header("إعدادات البرنامج")
     crypto_pair = st.sidebar.text_input("اختر زوج العملات (مثل BTC/USDT):", "BTC/USDT")
-
+    proxy_address = st.sidebar.text_input("أدخل عنوان الخادم الوكيل (اختياري):")
     # اختيار الفترة الزمنية
     timeframe = st.sidebar.selectbox("اختر الإطار الزمني:", ["1m", "5m", "15m", "1h", "4h", "1d"], index=4)
 
     # تحميل البيانات
     st.write(f"جلب البيانات لـ {crypto_pair} ...")
-    data = fetch_binance_data(crypto_pair, timeframe)
+    data = fetch_binance_data(crypto_pair, timeframe, proxy=proxy_address)
 
     if data is not None:
         # تحليل البيانات باستخدام EMA
@@ -298,11 +302,11 @@ def main():
         else:
            ai_content +=" , News data not available"
         ai_response = send_to_ai(ai_content)
-        st.write("تم إرسال النتائج بنجاح.")
+        st.write(" تم إرسال النتائج بنجاح الرجاء الانتظار قليلا لظهور النتائج.")
         st.subheader("رد الذكاء الاصطناعي")
         st.write(ai_response)
     else:
         st.write("تعذر جلب البيانات. تحقق من زوج العملات أو الإعدادات.")
-
+        st.subheader("مروان علوان  ")
 if __name__ == "__main__":
     main()
