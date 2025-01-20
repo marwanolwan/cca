@@ -11,6 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
+import time
 nltk.download('vader_lexicon')
 
 load_dotenv()
@@ -54,8 +55,13 @@ def fetch_coingecko_data(pair, timeframe):
         data.set_index("timestamp", inplace=True)
         return data
     except requests.exceptions.RequestException as e:
-        st.error(f"حدث خطأ في الاتصال بالإنترنت أثناء جلب بيانات الأسعار من CoinGecko: {e}")
-        return None
+        if e.response.status_code == 429:
+            st.error(f"حدث خطأ 429: تجاوزت الحد المسموح به للطلبات. يرجى الانتظار والمحاولة مرة أخرى.")
+            time.sleep(1)  # انتظر ثانية واحدة قبل المحاولة مرة أخرى
+            return fetch_coingecko_data(pair, timeframe) #حاول مرة اخرى بعد الانتظار
+        else:
+           st.error(f"حدث خطأ في الاتصال بالإنترنت أثناء جلب بيانات الأسعار من CoinGecko: {e}")
+           return None
     except Exception as e:
        st.error(f"حدث خطأ أثناء جلب بيانات الأسعار من CoinGecko: {e}")
        return None
@@ -251,12 +257,10 @@ def main():
         # رسم الرسوم البيانية
         plot_indicators(data, crypto_pair, pivot_point, resistance1, support1, resistance2, support2)
 
-
         # تحليل البيانات باستخدام Funding Rate
         st.subheader("نتائج التحليل باستخدام معدل التمويل (Funding Rate)")
         funding_rate_analysis = analyze_funding_rate(crypto_pair)
         st.write(funding_rate_analysis)
-
         # جلب بيانات الأخبار والمشاعر من الإنترنت
         st.subheader("تحليل الأخبار والمشاعر")
         news_headlines, average_sentiment = fetch_news_and_sentiment(crypto_pair)
